@@ -20,7 +20,11 @@ class ShuffleNetV2(nn.Module):
             # 加载预训练权重（需根据实际路径调整）
             state_dict = torch.load('shufflenetv2_x1.pth')
             model.load_state_dict(state_dict, strict=False)
-
+        self.channel_adjust = nn.Sequential(
+            nn.Conv2d(1024, 320, 1),
+            nn.BatchNorm2d(320),
+            nn.ReLU()
+        )
         # 构建特征序列
         self.features = nn.Sequential(
             *list(model.conv1.children()),  # 转换conv1的children
@@ -76,6 +80,7 @@ class ShuffleNetV2(nn.Module):
         # 获取浅层特征和深层特征
         low_level_features = self.features[:4](x)  # 前4层为浅层特征
         x = self.features[4:](low_level_features)  # 后续层为深层特征
+        x = self.channel_adjust(x)
         return low_level_features, x
 
 class MobileNetV2(nn.Module):
