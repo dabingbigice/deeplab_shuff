@@ -30,11 +30,6 @@ class ShuffleNetV2(nn.Module):
             *model.stage4.children(),
             *list(model.conv5.children())[:-1]  # 转换为列表后切片 ✅
         )
-        self.channel_adjust = nn.Sequential(
-            nn.Conv2d(1024, 320, 1),
-            nn.BatchNorm2d(320),
-            nn.ReLU()
-        )
 
         # 确定下采样层索引（示例值，需根据实际结构调整）
         self.total_idx = len(self.features)
