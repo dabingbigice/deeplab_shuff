@@ -30,6 +30,11 @@ class ShuffleNetV2(nn.Module):
             *model.stage4.children(),
             *list(model.conv5.children())[:-1]  # 转换为列表后切片 ✅
         )
+        self.channel_adjust = nn.Sequential(
+            nn.Conv2d(1024, 320, 1),
+            nn.BatchNorm2d(320),
+            nn.ReLU()
+        )
 
         # 确定下采样层索引（示例值，需根据实际结构调整）
         self.total_idx = len(self.features)
@@ -120,6 +125,7 @@ class MobileNetV2(nn.Module):
     def forward(self, x):
         low_level_features = self.features[:4](x)
         x = self.features[4:](low_level_features)
+        x = self.channel_adjust(x)  # 1024 -> 320
         return low_level_features, x
 
 
@@ -534,7 +540,7 @@ class DeepLab(nn.Module):
             #   主干部分    [30,30,320]
             #----------------------------------#
             self.backbone = ShuffleNetV2(downsample_factor=downsample_factor, pretrained=pretrained)
-            in_channels = 1024
+            in_channels = 320
             low_level_channels = 24
         else:
             raise ValueError('Unsupported backbone - `{}`, Use mobilenet, xception.'.format(backbone))
