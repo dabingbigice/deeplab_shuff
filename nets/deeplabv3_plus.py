@@ -409,38 +409,67 @@ class ASPP(nn.Module):
         )
 
         # --------------------------------
-        # 分支2：深度可分离+空洞卷积
+        # 分支2：空间深度可分离空洞卷积（垂直+水平分解）
         # --------------------------------
         self.branch2 = nn.Sequential(
-            # 深度卷积 (padding=6*rate保证输出尺寸不变)
-            nn.Conv2d(dim_in, dim_in, 3, padding=6 * rate,
-                      dilation=6 * rate, groups=dim_in, bias=False),
+            # 垂直深度卷积 (高度方向空洞)
+            nn.Conv2d(
+                dim_in, dim_in, (3, 1),
+                padding=(6 * rate, 0),  # 高度填充保证输出尺寸不变
+                dilation=(6 * rate, 1),  # 高度方向空洞率=6*rate
+                groups=dim_in,  # 关键：深度可分离
+                bias=False
+            ),
             nn.BatchNorm2d(dim_in, momentum=bn_mom),
             nn.ReLU(inplace=True),
-            # 逐点卷积
+
+            # 水平深度卷积 (宽度方向空洞)
+            nn.Conv2d(
+                dim_in, dim_in, (1, 3),
+                padding=(0, 6 * rate),  # 宽度填充保证输出尺寸不变
+                dilation=(1, 6 * rate),  # 宽度方向空洞率=6*rate
+                groups=dim_in,  # 关键：深度可分离
+                bias=False
+            ),
+            nn.BatchNorm2d(dim_in, momentum=bn_mom),
+            nn.ReLU(inplace=True),
+
+            # 通道融合：逐点卷积
             nn.Conv2d(dim_in, dim_out, 1, bias=False),
             nn.BatchNorm2d(dim_out, momentum=bn_mom),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=True)
         )
 
         # --------------------------------
-        # 分支3：空间可分离+空洞卷积
+        # 分支3：空间深度可分离空洞卷积（更大空洞率）
         # --------------------------------
         self.branch3 = nn.Sequential(
-            # 垂直卷积 (仅高度方向填充)
-            nn.Conv2d(dim_in, dim_in, (3, 1),
-                      padding=(12 * rate, 0),  # 高度方向填充12*rate
-                      dilation=(12 * rate, 1),
-                      bias=False),
+            # 垂直深度卷积 (高度方向更高空洞率)
+            nn.Conv2d(
+                dim_in, dim_in, (3, 1),
+                padding=(12 * rate, 0),  # 高度填充=12*rate
+                dilation=(12 * rate, 1),  # 高度方向空洞率=12*rate
+                groups=dim_in,  # 关键：深度可分离
+                bias=False
+            ),
             nn.BatchNorm2d(dim_in, momentum=bn_mom),
             nn.ReLU(inplace=True),
-            # 水平卷积 (仅宽度方向填充)
-            nn.Conv2d(dim_in, dim_out, (1, 3),
-                      padding=(0, 12 * rate),  # 宽度方向填充12*rate
-                      dilation=(1, 12 * rate),
-                      bias=False),
-            nn.BatchNorm2d(dim_out, momentum=bn_mom),
+
+            # 水平深度卷积 (宽度方向更高空洞率)
+            nn.Conv2d(
+                dim_in, dim_in, (1, 3),
+                padding=(0, 12 * rate),  # 宽度填充=12*rate
+                dilation=(1, 12 * rate),  # 宽度方向空洞率=12*rate
+                groups=dim_in,  # 关键：深度可分离
+                bias=False
+            ),
+            nn.BatchNorm2d(dim_in, momentum=bn_mom),
             nn.ReLU(inplace=True),
+
+            # 通道扩展：逐点卷积
+            nn.Conv2d(dim_in, dim_out, 1, bias=False),
+            nn.BatchNorm2d(dim_out, momentum=bn_mom),
+            nn.ReLU(inplace=True)
         )
 
         # --------------------------------
@@ -575,27 +604,30 @@ class DeepLab(nn.Module):
         # self.cls_conv = nn.Conv2d(256, num_classes, 1, stride=1)
         # 深度空间可分离卷积
         self.cat_conv = nn.Sequential(
-            # 第一个融合卷积：空间可分离+深度可分离
-            nn.Conv2d(304, 304, (3, 1), padding=(1, 0), groups=304, bias=False),  # 空间可分离-垂直
+            # 第一个融合卷积：空间可分离+深度可分离 + 空洞卷积
+            nn.Conv2d(304, 304, (3, 1), padding=(2, 0),  # 垂直方向空洞卷积（dilation=2）
+                      dilation=(2, 1), groups=304, bias=False),
             nn.BatchNorm2d(304),
             nn.ReLU(inplace=True),
-            nn.Conv2d(304, 304, (1, 3), padding=(0, 1), groups=304, bias=False),  # 空间可分离-水平
+            nn.Conv2d(304, 304, (1, 3), padding=(0, 2),  # 水平方向空洞卷积（dilation=2）
+                      dilation=(1, 2), groups=304, bias=False),
             nn.BatchNorm2d(304),
             nn.ReLU(inplace=True),
-            nn.Conv2d(304, 256, 1, bias=False),  # 逐点卷积
+            nn.Conv2d(304, 256, 1, bias=False),  # 逐点卷积（保持原样）
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
 
-            # 第二个融合卷积：深度可分离
-
-            nn.Conv2d(256, 256, (3, 1), padding=(1, 0), groups=256, bias=False),
+            # 第二个融合卷积：空间可分离+深度可分离 + 空洞卷积
+            nn.Conv2d(256, 256, (3, 1), padding=(4, 0),  # 垂直方向空洞卷积（dilation=4）
+                      dilation=(2, 1), groups=256, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, (1, 3), padding=(0, 1), groups=256, bias=False),
+            nn.Conv2d(256, 256, (1, 3), padding=(0, 4),  # 水平方向空洞卷积（dilation=4）
+                      dilation=(1, 2), groups=256, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, 1, bias=False),
+            nn.Conv2d(256, 256, 1, bias=False),  # 逐点卷积（保持原样）
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.Dropout(0.1),
